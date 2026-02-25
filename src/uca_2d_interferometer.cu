@@ -161,17 +161,10 @@ int main() {
     cudaMalloc(&d_measured, meas_size);
     cudaMalloc(&d_scores, score_size);
 
-    // 5. 预加载样本库到 GPU (模拟系统启动时的加载，不计入实时处理时间)
+    // 5. 预加载样本库到 GPU (模拟系统启动时的加载)
     cudaMemcpy(d_manifold, h_manifold.data(), manifold_size, cudaMemcpyHostToDevice);
 
-    // --- 计时开始 ---
-    // 我们只计算：数据传入GPU + 相关计算 + 搜索最大值
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
-
     std::cout << "Starting GPU Processing..." << std::endl;
-    cudaEventRecord(start);
 
     // A. 拷贝实测数据 (Host -> Device)
     cudaMemcpy(d_measured, h_measured.data(), meas_size, cudaMemcpyHostToDevice);
@@ -182,7 +175,7 @@ int main() {
     correlation_kernel<<<blocksPerGrid, threadsPerBlock>>>(d_manifold, d_measured, d_scores, total_scenarios);
 
     // C. 在 GPU 上搜索最大值 (使用 Thrust)
-    // thrust::max_element 返回指向最大值的迭代器(指针)
+    // thrust::max_element 返回指向最大值的迭代器(指针)，这是个同步操作，自带阻塞等待 Kernel 完成的效果
     thrust::device_ptr<float> score_ptr(d_scores);
     thrust::device_ptr<float> max_ptr = thrust::max_element(score_ptr, score_ptr + total_scenarios);
     
@@ -191,13 +184,6 @@ int main() {
     
     // 获取最大值 (如果需要，可选)
     // float max_val = *max_ptr; 
-
-    cudaEventRecord(stop);
-    cudaEventSynchronize(stop);
-    // --- 计时结束 ---
-
-    float milliseconds = 0;
-    cudaEventElapsedTime(&milliseconds, start, stop);
 
     // 6. 结果解析 (从索引反推角度)
     // idx = i_el * az_steps + i_az
@@ -210,14 +196,11 @@ int main() {
     std::cout << "\n=== Results ===" << std::endl;
     std::cout << "True Angle:      Az=" << true_az << ", El=" << true_el << std::endl;
     std::cout << "Estimated Angle: Az=" << res_az << ", El=" << res_el << std::endl;
-    std::cout << "Processing Time: " << milliseconds << " ms" << std::endl;
     
     // 7. 清理
     cudaFree(d_manifold);
     cudaFree(d_measured);
     cudaFree(d_scores);
-    cudaEventDestroy(start);
-    cudaEventDestroy(stop);
 
     return 0;
 }
