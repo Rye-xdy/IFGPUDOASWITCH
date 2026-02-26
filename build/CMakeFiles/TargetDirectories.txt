@@ -1,0 +1,3 @@
+/home/li/IFGPUDOASWITCH/build/CMakeFiles/music.dir
+/home/li/IFGPUDOASWITCH/build/CMakeFiles/edit_cache.dir
+/home/li/IFGPUDOASWITCH/build/CMakeFiles/rebuild_cache.dir

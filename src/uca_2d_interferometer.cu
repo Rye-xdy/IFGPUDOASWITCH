@@ -161,32 +161,67 @@ int main() {
     cudaMalloc(&d_measured, meas_size);
     cudaMalloc(&d_scores, score_size);
 
-    // 5. 预加载样本库到 GPU (模拟系统启动时的加载)
+   // ... 前面的代码保持不变 (建库、分配内存等) ...
+
+    // 5. 预加载样本库到 GPU
     cudaMemcpy(d_manifold, h_manifold.data(), manifold_size, cudaMemcpyHostToDevice);
 
     std::cout << "Starting GPU Processing..." << std::endl;
 
-    // A. 拷贝实测数据 (Host -> Device)
-    cudaMemcpy(d_measured, h_measured.data(), meas_size, cudaMemcpyHostToDevice);
-
-    // B. 执行相关计算 Kernel
     int threadsPerBlock = 256;
     int blocksPerGrid = (total_scenarios + threadsPerBlock - 1) / threadsPerBlock;
-    correlation_kernel<<<blocksPerGrid, threadsPerBlock>>>(d_manifold, d_measured, d_scores, total_scenarios);
+    int max_idx = 0;
 
-    // C. 在 GPU 上搜索最大值 (使用 Thrust)
-    // thrust::max_element 返回指向最大值的迭代器(指针)，这是个同步操作，自带阻塞等待 Kernel 完成的效果
-    thrust::device_ptr<float> score_ptr(d_scores);
-    thrust::device_ptr<float> max_ptr = thrust::max_element(score_ptr, score_ptr + total_scenarios);
+    // ==========================================
+    // --- 性能测试模块开始 ---
+    // ==========================================
     
-    // 计算索引
-    int max_idx = max_ptr - score_ptr;
+    // [1] 预热 (Warm-up)
+    // 消除 GPU 上下文初始化和 Thrust 首次内存分配的额外开销
+    cudaMemcpy(d_measured, h_measured.data(), meas_size, cudaMemcpyHostToDevice);
+    correlation_kernel<<<blocksPerGrid, threadsPerBlock>>>(d_manifold, d_measured, d_scores, total_scenarios);
+    thrust::device_ptr<float> score_ptr_warmup(d_scores);
+    thrust::max_element(score_ptr_warmup, score_ptr_warmup + total_scenarios);
+    cudaDeviceSynchronize(); // 确保预热完全结束
+
+    // [2] 循环计时准备
+    int num_iterations = 1000; // 测试循环次数
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
+    std::cout << "Running Benchmark for " << num_iterations << " iterations..." << std::endl;
+
+    // [3] 开始计时
+    cudaEventRecord(start);
+
+    for (int i = 0; i < num_iterations; ++i) {
+        // A. 拷贝实测数据 (Host -> Device)
+        cudaMemcpy(d_measured, h_measured.data(), meas_size, cudaMemcpyHostToDevice);
+
+        // B. 执行相关计算 Kernel
+        correlation_kernel<<<blocksPerGrid, threadsPerBlock>>>(d_manifold, d_measured, d_scores, total_scenarios);
+
+        // C. 在 GPU 上搜索最大值 (使用 Thrust)
+        thrust::device_ptr<float> score_ptr(d_scores);
+        thrust::device_ptr<float> max_ptr = thrust::max_element(score_ptr, score_ptr + total_scenarios);
+        
+        // 计算索引 (注意：这步依赖于 GPU 返回结果，会隐式同步)
+        max_idx = max_ptr - score_ptr;
+    }
+
+    // [4] 结束计时
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop); // 等待所有 GPU 任务完成
+
+    float total_milliseconds = 0;
+    cudaEventElapsedTime(&total_milliseconds, start, stop);
     
-    // 获取最大值 (如果需要，可选)
-    // float max_val = *max_ptr; 
+    // ==========================================
+    // --- 性能测试模块结束 ---
+    // ==========================================
 
     // 6. 结果解析 (从索引反推角度)
-    // idx = i_el * az_steps + i_az
     int res_i_el = max_idx / az_steps;
     int res_i_az = max_idx % az_steps;
     
@@ -197,7 +232,13 @@ int main() {
     std::cout << "True Angle:      Az=" << true_az << ", El=" << true_el << std::endl;
     std::cout << "Estimated Angle: Az=" << res_az << ", El=" << res_el << std::endl;
     
+    std::cout << "\n=== Performance ===" << std::endl;
+    std::cout << "Total Time (" << num_iterations << " runs): " << total_milliseconds << " ms" << std::endl;
+    std::cout << "Average Time per run: " << total_milliseconds / num_iterations << " ms" << std::endl;
+    
     // 7. 清理
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
     cudaFree(d_manifold);
     cudaFree(d_measured);
     cudaFree(d_scores);
