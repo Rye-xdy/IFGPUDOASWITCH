@@ -1,8 +1,0 @@
-[
-{
-  "directory": "/home/li/IFGPUDOASWITCH/build",
-  "command": "/usr/local/cuda-13.0/bin/nvcc -forward-unknown-to-host-compiler  --options-file CMakeFiles/music.dir/includes_CUDA.rsp -g -std=c++17 \"--generate-code=arch=compute_75,code=[compute_75,sm_75]\" -lineinfo -x cu -c /home/li/IFGPUDOASWITCH/src/uca_2d_interferometer.cu -o CMakeFiles/music.dir/src/uca_2d_interferometer.cu.o",
-  "file": "/home/li/IFGPUDOASWITCH/src/uca_2d_interferometer.cu",
-  "output": "CMakeFiles/music.dir/src/uca_2d_interferometer.cu.o"
-}
-]
